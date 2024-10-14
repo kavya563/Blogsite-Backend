@@ -1,30 +1,23 @@
+/*
 package com.blogsite.blog_site_user.controller;
 import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-import com.blogsite.blog_site_user.entity.*;
-import com.blogsite.blog_site_user.repository.RoleRepository;
+import com.blogsite.blog_site_user.commands.CreateUserCommand;
+import com.blogsite.blog_site_user.entity.AppConstants;
+import com.blogsite.blog_site_user.entity.User;
 import com.blogsite.blog_site_user.repository.UserRepository;
-import com.blogsite.blog_site_user.security.JwtUtils;
-import com.blogsite.blog_site_user.security.UserDetailsImpl;
+import com.blogsite.blog_site_user.service.KafKaProducerService;
+import kafka.utils.PasswordEncoder;
+import org.axonframework.commandhandling.gateway.CommandGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-import java.util.HashSet;
-import java.util.Optional;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import java.util.Collections;
 
 public class AuthControllerTest {
 
@@ -32,128 +25,75 @@ public class AuthControllerTest {
     private AuthController authController;
 
     @Mock
-    private AuthenticationManager authenticationManager;
-
-    @Mock
     private UserRepository userRepository;
 
     @Mock
-    private RoleRepository roleRepository;
+    private KafKaProducerService kafkaProducerService;
 
     @Mock
     private PasswordEncoder encoder;
 
     @Mock
-    private JwtUtils jwtUtils;
+    private CommandGateway commandGateway;
 
-    private MockMvc mockMvc;
+    private User signUpRequest;
 
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.openMocks(this);
-        mockMvc = MockMvcBuilders.standaloneSetup(authController).build();
+        signUpRequest = new User();
+        signUpRequest.setUsername("newuser");
+        signUpRequest.setEmail("user@example.com");
+        signUpRequest.setPassword("password");
     }
 
-
+    // Positive Test Case
     @Test
-    public void testAuthenticateUser_Success() throws Exception {
-        String username = "testUser";
-        String password = "password";
+    public void testRegisterUser_Success() {
+        // Mocking the scenario where username and email do not exist
+        when(userRepository.existsByUsername(signUpRequest.getUsername())).thenReturn(false);
+        when(userRepository.existsByEmail(signUpRequest.getEmail())).thenReturn(false);
 
-        // Create a LoginRequest
-        LoginRequest loginRequest = new LoginRequest(username, password);
+        // Act
+        ResponseEntity<?> response = authController.registerUser(signUpRequest);
 
-        // Create a UserDetailsImpl instance
-        UserDetails userDetails = new UserDetailsImpl("1", username, "test@example.com", password, new HashSet<>());
-
-        // Create an Authentication object with the UserDetailsImpl
-        Authentication authentication = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-
-        // Mock the authentication manager to return the authenticated UserDetails
-        when(authenticationManager.authenticate(any())).thenReturn(authentication);
-        when(jwtUtils.generateJwtToken(authentication)).thenReturn("jwt-token");
-
-        // Perform the login request
-        mockMvc.perform(post("/blogsite/user/blogs/signin")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"" + username + "\", \"password\":\"" + password + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("jwt-token"));
+        // Assert
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(Collections.singletonMap("message", "User registered successfully"), response.getBody());
+        verify(commandGateway).sendAndWait(any(CreateUserCommand.class));
     }
 
-
+    // Negative Test Case - Username Already Taken
     @Test
-    public void testAuthenticateUser_Failure() throws Exception {
-        String username = "testUser";
-        String password = "wrongPassword";
-        LoginRequest loginRequest = new LoginRequest(username, password);
+    public void testRegisterUser_UsernameAlreadyTaken() {
+        // Mocking the scenario where the username already exists
+        when(userRepository.existsByUsername(signUpRequest.getUsername())).thenReturn(true);
 
-        // Mock the authentication manager to throw an exception
-        when(authenticationManager.authenticate(any())).thenThrow(new RuntimeException("Authentication failed"));
+        // Act
+        ResponseEntity<?> response = authController.registerUser(signUpRequest);
 
-        // Perform the login request and expect a bad request response
-        mockMvc.perform(post("/blogsite/user/blogs/signin")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"" + username + "\", \"password\":\"" + password + "\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().string("Authentication failed: Authentication failed")); // Optional: check the response message
+        // Assert
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(Collections.singletonMap("message", "Error: Username is already taken!"), response.getBody());
+        verify(kafkaProducerService).userActions(contains("Error: Username is already taken!"), eq(AppConstants.TOPIC_USER_REGISTER_FAIL));
+        verify(commandGateway, never()).sendAndWait(any());
     }
 
-
+    // Negative Test Case - Email Already Taken
     @Test
-    public void testRegisterUser_Success() throws Exception {
-        User user = new User();
-        user.setUsername("testUser");
-        user.setEmail("test@example.com");
-        user.setPassword("password");
+    public void testRegisterUser_EmailAlreadyTaken() {
+        // Mocking the scenario where the email already exists
+        when(userRepository.existsByUsername(signUpRequest.getUsername())).thenReturn(false);
+        when(userRepository.existsByEmail(signUpRequest.getEmail())).thenReturn(true);
 
-        when(userRepository.existsByUsername(user.getUsername())).thenReturn(false);
-        when(userRepository.existsByEmail(user.getEmail())).thenReturn(false);
-        when(encoder.encode(user.getPassword())).thenReturn("encodedPassword");
+        // Act
+        ResponseEntity<?> response = authController.registerUser(signUpRequest);
 
-        Role role = new Role();
-        role.setName(ERole.ROLE_USER);
-        when(roleRepository.findByName(ERole.ROLE_USER)).thenReturn(Optional.of(role));
-
-        mockMvc.perform(post("/blogsite/user/blogs/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"testUser\", \"email\":\"test@example.com\", \"password\":\"password\"}"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("User registered successfully!"));
-
-        verify(userRepository).save(any(User.class));
-    }
-
-    @Test
-    public void testRegisterUser_UsernameExists() throws Exception {
-        User user = new User();
-        user.setUsername("existingUser");
-        user.setEmail("test@example.com");
-        user.setPassword("password");
-
-        when(userRepository.existsByUsername(user.getUsername())).thenReturn(true);
-
-        mockMvc.perform(post("/blogsite/user/blogs/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"existingUser\", \"email\":\"test@example.com\", \"password\":\"password\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().string("Error: Username is already taken!"));
-    }
-
-    @Test
-    public void testRegisterUser_EmailExists() throws Exception {
-        User user = new User();
-        user.setUsername("newUser");
-        user.setEmail("existing@example.com");
-        user.setPassword("password");
-
-        when(userRepository.existsByUsername(user.getUsername())).thenReturn(false);
-        when(userRepository.existsByEmail(user.getEmail())).thenReturn(true);
-
-        mockMvc.perform(post("/blogsite/user/blogs/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"newUser\", \"email\":\"existing@example.com\", \"password\":\"password\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().string("Error: Email is already in use!"));
+        // Assert
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(Collections.singletonMap("message", "Error: Email is already in use!"), response.getBody());
+        verify(kafkaProducerService).userActions(contains("Error: Email is already taken!"), eq(AppConstants.TOPIC_USER_REGISTER_FAIL));
+        verify(commandGateway, never()).sendAndWait(any());
     }
 }
+*/

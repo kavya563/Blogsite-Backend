@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/blogsite/user/blogs")
 public class AuthController {
+
+
 	@Autowired
 	AuthenticationManager authenticationManager;
 
@@ -56,7 +58,7 @@ public class AuthController {
 
 	/**
 	 * Authenticate User Credentials
-	 * 
+	 *
 	 * @param loginRequest
 	 * @return
 	 */
@@ -86,9 +88,9 @@ public class AuthController {
 
 
 	/**
-	 * 
+	 *
 	 * Register new user
-	 * 
+	 *
 	 * @param signUpRequest
 	 * @return
 	 */
