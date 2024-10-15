@@ -19,7 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
-@CrossOrigin(origins = "http://localhost:4200", maxAge = 3600)
+@CrossOrigin(origins = {"http://localhost:4200","http://blogsiteapp.s3-website-us-east-1.amazonaws.com"}, maxAge = 3600)
 @RestController
 @RequestMapping("api/v1.0/blogsite/blogs")
 public class BlogSearchController {

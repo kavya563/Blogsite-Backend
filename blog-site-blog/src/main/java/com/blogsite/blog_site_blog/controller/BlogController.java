@@ -25,7 +25,7 @@ import java.util.*;
 import java.util.Optional;
 
 @Slf4j
-@CrossOrigin(origins = "http://localhost:4200", maxAge = 3600)
+@CrossOrigin(origins = {"http://localhost:4200","http://blogsiteapp.s3-website-us-east-1.amazonaws.com"}, maxAge = 3600)
 @RestController
 @RequestMapping("api/v1.0/blogsite/user")
 public class BlogController {

@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@CrossOrigin(origins = "http://localhost:4200", maxAge = 3600)
+@CrossOrigin(origins = {"http://localhost:4200","http://blogsiteapp.s3-website-us-east-1.amazonaws.com"}, maxAge = 3600)
 @RestController
 @RequestMapping("/blogsite/user/blogs")
 public class AuthController {
